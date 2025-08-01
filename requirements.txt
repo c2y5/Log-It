@@ -1,1 +1,4 @@
-Flask==3.0.3
+flask
+pymongo
+pyjwt
+python-dotenv
