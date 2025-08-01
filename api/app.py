@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import os
@@ -7,9 +7,13 @@ import secrets
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from functools import wraps
+import yaml
 
 app = Flask(__name__)
 load_dotenv()
+
+with open(os.path.join(os.path.dirname(__file__), "api.yml"), "r") as f:
+    swaggerTemplate = yaml.safe_load(f)
 
 mongoClient = MongoClient(os.getenv("MONGO_URI"))
 db = mongoClient["logit-dev-19382"]
@@ -235,6 +239,20 @@ def clearLogs():
         return jsonify({"error": "No logs found to delete"}), 404
 
 ### SOME OTHER STUFF ###
+
+@app.route("/openapi.json")
+def openapiJson():
+    return jsonify(swaggerTemplate)
+
+@app.route("/")
+def swaggerUI():
+    swagger_dir = os.path.join(app.root_path, "../static/swagger")
+    return send_from_directory(swagger_dir, "index.html")
+
+@app.route("/<path:path>")
+def swagger_static(path):
+    swagger_dir = os.path.join(app.root_path, "../static/swagger")
+    return send_from_directory(swagger_dir, path)
 
 @app.route("/stats", methods=["GET"])
 def stats():
