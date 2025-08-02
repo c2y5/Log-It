@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 import requests
 from dateutil import parser as date_parser
+import re
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True, expose_headers=["LogIt-Authorization"], allow_headers=["LogIt-Authorization", "Content-Type"])
@@ -435,7 +436,28 @@ def searchLogs():
     messageRegex = request.args.get("messageRegex")
     caseSensitive = request.args.get("caseSensitive", "false").lower() == "true"
     if messageRegex:
-        query["message"] = {"$regex": messageRegex, "$options": "" if caseSensitive else "i"}
+        try:
+            flags = 0 if caseSensitive else re.IGNORECASE
+            re.compile(messageRegex, flags)
+            query["message"] = {"$regex": messageRegex, "$options": "" if caseSensitive else "i"}
+        except re.error:
+            projection = {
+                "_id": 0,
+                "message": 1,
+                "ip": 1,
+                "logLevel": 1,
+                "timestamp": 1,
+                "channel": 1,
+                "logId": 1
+            }
+            return jsonify({
+                "publicKey": request.publicDevKey,
+                "page": 1,
+                "limit": 0,
+                "filtersApplied": query,
+                "returnedFields": list(projection.keys()),
+                "logs": []
+            }), 400
 
     startDate = request.args.get("startDate")
     endDate = request.args.get("endDate")
@@ -448,7 +470,23 @@ def searchLogs():
                 time_filter["$lte"] = date_parser.parse(endDate).isoformat()
             query["timestamp"] = time_filter
         except Exception:
-            return jsonify({"error": "Invalid date format"}), 400
+            projection = {
+                "_id": 0,
+                "message": 1,
+                "ip": 1,
+                "logLevel": 1,
+                "timestamp": 1,
+                "channel": 1,
+                "logId": 1
+            }
+            return jsonify({
+                "publicKey": request.publicDevKey,
+                "page": 1,
+                "limit": 0,
+                "filtersApplied": query,
+                "returnedFields": list(projection.keys()),
+                "logs": []
+            }), 400
 
     page = max(1, request.args.get("page", 1, type=int))
     limit = min(500, request.args.get("limit", 100, type=int))
@@ -484,7 +522,7 @@ def searchLogs():
         "sortOrder": sortOrder,
         "filtersApplied": query,
         "returnedFields": list(projection.keys()),
-        "logs": logs
+        "logs": logs if logs else []
     }), 200
 
 @app.route("/api/edit", methods=["PUT"])
