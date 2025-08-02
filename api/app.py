@@ -11,7 +11,6 @@ import yaml
 import csv
 import io
 from flask_cors import CORS
-import os
 import base64
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
@@ -27,7 +26,7 @@ with open(os.path.join(os.path.dirname(__file__), "api.yml"), "r") as f:
     swaggerTemplate = yaml.safe_load(f)
 
 mongoClient = MongoClient(os.getenv("MONGO_URI"))
-mongodb = mongoClient["logit-dev-19382"]
+mongodb = mongoClient["logit-dev"] if os.getenv("DEV") == "1" else mongoClient["logit-prod"]
 devKeys = mongodb["devKeys"]
 logDb = mongodb["logs"]
 
@@ -62,7 +61,7 @@ def authRequire(f):
                 return jsonify({"error": "Invalid public dev key"}), 403
 
             try:
-                decodedPwd = decrypt(base64.b64decode(decoded.get("pwd")), jwtSecret).decode()
+                decodedPwd = decrypt(base64.b64decode(decoded.get("encryptedPwd")), jwtSecret).decode()
             except Exception as e:
                 return jsonify({"error": "Failed to decrypt password"}), 403
 
@@ -129,7 +128,7 @@ def registerAuth():
     
     payload = {
         "publicKey": pubDevKey,
-        "pwd": base64.b64encode(encrypt(pwd.encode(), jwtSecret)).decode(),
+        "encryptedPwd": base64.b64encode(encrypt(pwd.encode(), jwtSecret)).decode(),
         "exp": datetime.now(timezone.utc) + timedelta(seconds=jwtExp)
     }
 
@@ -158,7 +157,7 @@ def loginAuth():
 
     payload = {
         "publicKey": pubDevKey,
-        "pwd": base64.b64encode(encrypt(pwd.encode(), jwtSecret)).decode(),
+        "encryptedPwd": base64.b64encode(encrypt(pwd.encode(), jwtSecret)).decode(),
         "exp": datetime.now(timezone.utc) + timedelta(seconds=jwtExp)
     }
 
@@ -297,7 +296,7 @@ def pullLogs():
             if not savedHashedPwd:
                 return jsonify({"error": "Invalid public dev key"}), 403
             try:
-                decodedPwd = decrypt(base64.b64decode(decoded.get("pwd")), jwtSecret).decode()
+                decodedPwd = decrypt(base64.b64decode(decoded.get("encryptedPwd")), jwtSecret).decode()
             except Exception as e:
                 return jsonify({"error": "Failed to decrypt password"}), 403
             if not check_password_hash(savedHashedPwd.get("hashedPwd"), decodedPwd):
@@ -602,7 +601,7 @@ def addIpBlacklist():
     if not ip:
         return jsonify({"error": "IP address is required"}), 400
     
-    result = devKeys.update_one({"publicKey": request.publicDevKey}, {"$addToSet": {"blacklist": ip}})
+    result = devKeys.update_one({"publicKey": request.publicDevKey}, {"$addToSet": {"blacklistedIps": ip}})
 
     if result.modified_count > 0:
         return jsonify({"status": "success"}), 200
@@ -617,7 +616,7 @@ def removeIpBlacklist():
     if not ip:
         return jsonify({"error": "IP address is required"}), 400
     
-    result = devKeys.update_one({"publicKey": request.publicDevKey}, {"$pull": {"blacklist": ip}})
+    result = devKeys.update_one({"publicKey": request.publicDevKey}, {"$pull": {"blacklistedIps": ip}})
     if result.modified_count > 0:
         return jsonify({"status": "IP removed from blacklist"}), 200
     else:
@@ -626,11 +625,11 @@ def removeIpBlacklist():
 @app.route("/api/blacklist/list", methods=["GET"])
 @authRequire
 def listIpBlacklist():
-    result = devKeys.find_one({"publicKey": request.publicDevKey}, {"blacklist": 1})
-    if result and "blacklist" in result:
-        return jsonify({"blacklist": result["blacklist"]}), 200
+    result = devKeys.find_one({"publicKey": request.publicDevKey}, {"blacklistedIps": 1})
+    if result and "blacklistedIps" in result:
+        return jsonify({"blacklistedIps": result["blacklistedIps"]}), 200
     else:
-        return jsonify({"blacklist": []}), 200
+        return jsonify({"blacklistedIps": []}), 200
 
 ### SOME OTHER STUFF ###
 

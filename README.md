@@ -1,28 +1,49 @@
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fpython%2Fflask3&demo-title=Flask%203%20%2B%20Vercel&demo-description=Use%20Flask%203%20on%20Vercel%20with%20Serverless%20Functions%20using%20the%20Python%20Runtime.&demo-url=https%3A%2F%2Fflask3-python-template.vercel.app%2F&demo-image=https://assets.vercel.com/image/upload/v1669994156/random/flask.png)
+# Log-It API
 
-# Flask + Vercel
+An API for developers to log and manage their application logs.
 
-This example shows how to use Flask 3 on Vercel with Serverless Functions using the [Python Runtime](https://vercel.com/docs/concepts/functions/serverless-functions/runtimes/python).
+\* The authorization header is called ``LogIt-Authorization`` and it uses JWT tokens
 
-## Demo
+---
 
-https://flask-python-template.vercel.app/
+## Features
 
-## How it Works
+* JWT Authentication from `LogIt-Authorization` header
+* Advanced search with regex, date and other filters
+* Bulk Logging for batching log submissions
+* Export Logs in JSON or CSV
+* IP blacklist per dev key
+* Discord webhook support
 
-This example uses the Web Server Gateway Interface (WSGI) with Flask to enable handling requests on Vercel with Serverless Functions.
+---
 
-## Running Locally
+## Documentation
+
+Full API documentation @ https://logit.amsky.xyz
+
+---
+
+## Host it yourself
 
 ```bash
-npm i -g vercel
-vercel dev
+git clone https://github.com/c2y5/Log-It
+cd Log-It
+pip install -r requirements.txt
 ```
 
-Your Flask application is now available at `http://localhost:3000`.
+Configure ``.env``
+- Copy the contents of ``.env.example`` and create a file ``.env`` in ./api folder
+- Set the ``MONGO_URI`` to your MongoDB Atlas URI
+- Update ``JWT_SECRET`` to a random string 
 
-## One-Click Deploy
+# License 
 
-Deploy the example using [Vercel](https://vercel.com?utm_source=github&utm_medium=readme&utm_campaign=vercel-examples):
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fpython%2Fflask3&demo-title=Flask%203%20%2B%20Vercel&demo-description=Use%20Flask%203%20on%20Vercel%20with%20Serverless%20Functions%20using%20the%20Python%20Runtime.&demo-url=https%3A%2F%2Fflask3-python-template.vercel.app%2F&demo-image=https://assets.vercel.com/image/upload/v1669994156/random/flask.png)
+---
+
+# Contributing
+
+Feel free to submit issues or pull requests! Suggestions to improve **Log-It** are very welcome.
+
+---
