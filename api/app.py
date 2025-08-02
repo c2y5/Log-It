@@ -20,7 +20,7 @@ from dateutil import parser as date_parser
 import re
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True, expose_headers=["LogIt-Authorization"], allow_headers=["LogIt-Authorization", "Content-Type"])
+CORS(app, supports_credentials=True, expose_headers=["LogIt-Authorization"], allow_headers=["LogIt-Authorization", "Content-Type"], origins="*")
 load_dotenv()
 
 with open(os.path.join(os.path.dirname(__file__), "api.yml"), "r") as f:
@@ -33,7 +33,7 @@ logDb = mongodb["logs"]
 
 jwtSecret = os.getenv("JWT_SECRET")
 jwtAlgo = "HS256"
-jwtExp = 60 * 60
+jwtExp = 60 * 60 * 24
 
 def getIp(r):
     if r.headers.getlist("X-Forwarded-For"):
@@ -724,7 +724,7 @@ def stats():
         "totalDevKeys": total_devs
     }), 200
 
-@app.route("/webhook_setup", methods=["POST"])
+@app.route("/api/webhook-setup", methods=["POST"])
 @authRequire
 def webhookSetup():
     data = request.get_json()
@@ -740,7 +740,22 @@ def webhookSetup():
     
     devKeys.update_one({"publicKey": request.publicDevKey}, {"$set": {"webhookUrl": webhookUrl}})
 
-    return jsonify({"status": "Webhook URL set successfully"}), 200
+    return jsonify({"status": "success"}), 200
+
+@app.route("/api/update-public-view", methods=["POST"])
+@authRequire
+def updatePublicView():
+    data = request.get_json()
+    publicView = data.get("publicView")
+    if publicView is None or not isinstance(publicView, bool):
+        return jsonify({"error": "Public view must be a boolean"}), 400
+    
+    result = devKeys.update_one({"publicKey": request.publicDevKey}, {"$set": {"publicView": publicView}})
+
+    if result.modified_count > 0:
+        return jsonify({"status": "success"}), 200
+    else:
+        return jsonify({"error": "Failed to update public view or no changes were made"}), 400
 
 @app.errorhandler(404)
 def not_found(e):

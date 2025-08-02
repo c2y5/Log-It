@@ -910,7 +910,7 @@ paths:
                 properties:
                   error:
                     type: string
-  /webhook_setup:
+  /api/webhook-setup:
     post:
       summary: Setup webhook for log notifications
       security:
@@ -954,3 +954,38 @@ paths:
                 properties:
                   error:
                     type: string
+  /api/update-public-view:
+    post:
+      summary: Update public view setting
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                publicView:
+                  type: boolean
+      responses:
+        "200":
+          description: Public view setting updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "403":
+          description: Unauthorized access
