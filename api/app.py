@@ -710,12 +710,5 @@ def bad_request(e):
 def unauthorized(e):
     return jsonify({"error": "Unauthorized"}), 401
 
-@app.after_request
-def after_request(response):
-    origin = request.headers.get("Origin")
-    if origin:
-        response.headers["Access-Control-Allow-Origin"] = origin
-    return response
-
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
