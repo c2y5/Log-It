@@ -27,6 +27,8 @@ Full API documentation @ https://logit.amsky.xyz
 
 ## Host it yourself
 
+Clone the repository & install the requirements
+
 ```bash
 git clone https://github.com/c2y5/Log-It
 cd Log-It
@@ -47,5 +49,3 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 # Contributing
 
 Feel free to submit issues or pull requests! Suggestions to improve **Log-It** are very welcome.
-
----
