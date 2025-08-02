@@ -449,7 +449,7 @@ def searchLogs():
                 "page": 1,
                 "limit": 0,
                 "filtersApplied": query,
-                "returnedFields": list(projection.keys()),
+                "returnedFields": list(projection.keys()).remove("_id") if "_id" in projection else list(projection.keys()),
                 "logs": [],
             }), 400
 
@@ -479,7 +479,7 @@ def searchLogs():
                 "page": 1,
                 "limit": 0,
                 "filtersApplied": query,
-                "returnedFields": list(projection.keys()),
+                "returnedFields": list(projection.keys()).remove("_id") if "_id" in projection else list(projection.keys()),
                 "logs": []
             }), 400
 
@@ -517,7 +517,7 @@ def searchLogs():
         "sortField": sortField,
         "sortOrder": sortOrder,
         "filtersApplied": query,
-        "returnedFields": list(projection.keys()),
+        "returnedFields": list(projection.keys()).remove("_id") if "_id" in projection else list(projection.keys()),
         "logs": logs if logs else []
     }), 200
 
