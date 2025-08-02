@@ -25,6 +25,8 @@ paths:
               properties:
                 password:
                   type: string
+                publicView:
+                  type: boolean
       responses:
         "201":
           description: Dev key created

@@ -100,13 +100,14 @@ def decrypt(encrypted_bytes, key):
 def registerAuth():
     data = request.get_json()
     pwd = data.get("password")
-    if not pwd:
-        return jsonify({"error": "Password is required"}), 400
+    pubView = data.get("publicView")
+    if not pwd or not isinstance(pubView, bool) or pubView is None:
+        return jsonify({"error": "Password & public view is required"}), 400
     
     pubDevKey = secrets.token_urlsafe(16)
     hashedPwd = generate_password_hash(pwd)
 
-    result = devKeys.insert_one({"publicKey": pubDevKey, "hashedPwd": hashedPwd})
+    result = devKeys.insert_one({"publicKey": pubDevKey, "hashedPwd": hashedPwd, "publicView": pubView})
 
     if not result.inserted_id:
         return jsonify({"error": "Failed to register for a dev key"}), 500
@@ -256,6 +257,12 @@ def pullLogs():
         if not devKeys.find_one({"publicKey": pubKey}):
             return jsonify({"error": "Invalid public dev key"}), 403
         request.publicDevKey = pubKey
+
+    result = devKeys.find_one({"publicKey": request.publicDevKey}, {"publicView": 1})
+    publicView = result.get("publicView", False)
+
+    if not publicView and not hasAuth:
+        return jsonify({"error": "Public view is disabled for this key"}), 403
 
     page = request.args.get("page", 1, type=int)
 
