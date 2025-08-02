@@ -159,12 +159,8 @@ paths:
                           type: string
                         channel:
                           type: string
-                          description: |
-                            Channel name. Will be "***" for public access.
                         ip:
                           type: string
-                          description: |
-                            IP address. Will be "***" for public access.
                         logLevel:
                           type: string
                         timestamp:
@@ -172,8 +168,8 @@ paths:
                           format: date-time
                         logId:
                           type: string
-                          description: |
-                            Log ID. Will be "***" for public access.
+                        environment:
+                          type: string
         "401":
           description: Invalid or missing auth token when given
           content:
@@ -222,6 +218,12 @@ paths:
           required: false
           schema:
             type: array
+        - name: environment
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [dev, staging, prod]
       responses:
         "200":
           description: Log created successfully
@@ -462,6 +464,9 @@ paths:
                     type: array
                     items:
                       type: string
+                  environment:
+                    type: string
+                    enum: [dev, staging, prod]
       responses:
         "200":
           description: Logs created successfully
@@ -520,6 +525,13 @@ paths:
           description: Filter by channel (comma separated)
           schema:
             type: string
+        - name: environment
+          in: query
+          required: false
+          description: Filter by environment (dev, staging, prod)
+          schema:
+            type: string
+            enum: [dev, staging, prod]
         - name: tags
           in: query
           required: false
@@ -651,6 +663,8 @@ paths:
                           type: string
                           format: date-time
                         logId:
+                          type: string
+                        environment:
                           type: string
         "400":
           description: Invalid request (e.g., bad date format)

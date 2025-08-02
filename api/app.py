@@ -199,6 +199,7 @@ def logMessage():
     channel = request.args.get("channel")
     logLevel = request.args.get("logLevel", "info")
     tags = request.args.getlist("tags")
+    environment = request.args.get("environment", "prod")
 
     if not message or not channel:
         return jsonify({"error": "Message and channel are required"}), 400
@@ -211,7 +212,8 @@ def logMessage():
         "channel": channel,
         "logId": secrets.token_urlsafe(12)[:16],
         "publicDevKey": pubDevKey,
-        "tags": tags if tags else []
+        "tags": tags if tags else [],
+        "environment": environment
     }
 
     webhookUrl = devKeys.find_one({"publicKey": pubDevKey}, {"webhookUrl": 1}).get("webhookUrl")
@@ -270,6 +272,7 @@ def bulkLogMessages():
         channel = entry.get("channel")
         logLevel = entry.get("logLevel", "info")
         tags = entry.get("tags", [])
+        environment = entry.get("environment", "prod")
 
         if not message or not channel:
             return jsonify({"error": "Each entry must have a message and channel"}), 400
@@ -282,7 +285,8 @@ def bulkLogMessages():
             "channel": channel,
             "logId": secrets.token_urlsafe(12)[:16],
             "publicDevKey": pubDevKey,
-            "tags": tags if tags else []
+            "tags": tags if tags else [],
+            "environment": environment
         }
 
         logsInsert.append(log_entry)
@@ -300,10 +304,11 @@ def pullLogs():
     authHeader = request.headers.get("LogIt-Authorization")
     if authHeader:
         hasAuth = True
-        if not authHeader.startswith("Bearer "):
-            return jsonify({"error": "Invalid authorization header"}), 401
+        if authHeader.startswith("Bearer "):
+            token = authHeader.split(" ")[1]
+        else:
+            token = authHeader
         
-        token = authHeader.split(" ")[1]
         try:
             decoded = jwt.decode(token, jwtSecret, algorithms=[jwtAlgo])
             savedHashedPwd = devKeys.find_one({"publicKey": decoded.get("publicKey")}, {"hashedPwd": 1})
@@ -372,7 +377,8 @@ def pullLogs():
             "logLevel": 1,
             "timestamp": 1,
             "channel": 1,
-            "logId": 1
+            "logId": 1,
+            "environment": 1
         }
 
         logs = list(logDb.find(query, projection).sort("timestamp", -1).skip((page - 1) * 100).limit(100))
@@ -391,7 +397,8 @@ def pullLogs():
             "logLevel": 1,
             "timestamp": 1,
             "channel": 1,
-            "logId": 1
+            "logId": 1,
+            "environment": 1
         }
         logs = list(logDb.find(query, projection).sort("timestamp", -1).skip((page - 1) * 100).limit(100))
 
@@ -424,6 +431,10 @@ def searchLogs():
     multValueFilter("logLevel")
     multValueFilter("ip")
 
+    environment = request.args.get("environment")
+    if environment:
+        query["environment"] = environment
+
     tags = request.args.get("tags")
     if tags:
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
@@ -448,7 +459,8 @@ def searchLogs():
                 "logLevel": 1,
                 "timestamp": 1,
                 "channel": 1,
-                "logId": 1
+                "logId": 1,
+                "environment": 1
             }
             return jsonify({
                 "publicKey": request.publicDevKey,
@@ -456,7 +468,7 @@ def searchLogs():
                 "limit": 0,
                 "filtersApplied": query,
                 "returnedFields": list(projection.keys()),
-                "logs": []
+                "logs": [],
             }), 400
 
     startDate = request.args.get("startDate")
@@ -477,7 +489,8 @@ def searchLogs():
                 "logLevel": 1,
                 "timestamp": 1,
                 "channel": 1,
-                "logId": 1
+                "logId": 1,
+                "environment": 1
             }
             return jsonify({
                 "publicKey": request.publicDevKey,
@@ -507,7 +520,8 @@ def searchLogs():
             "logLevel": 1,
             "timestamp": 1,
             "channel": 1,
-            "logId": 1
+            "logId": 1,
+            "environment": 1
         }
 
     logs = list(
