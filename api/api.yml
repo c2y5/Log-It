@@ -92,22 +92,42 @@ paths:
   /api/pull:
     get:
       summary: Fetch logs
+      description: |
+        Fetch logs for the authenticated user or public logs with limited info.
+
+        - With auth you get full filters and full data.
+        - If no auth, provide `key` (public dev key) query parameter to fetch public logs with limited info.
       security:
         - bearerAuth: []
       parameters:
+        - name: key
+          in: query
+          required: false
+          description: Public dev key, required if no auth token is provided.
+          schema:
+            type: string
         - name: channel
           in: query
           required: false
+          description: Filter logs by channel (only works with auth token).
           schema:
             type: string
         - name: ip
           in: query
           required: false
+          description: Filter logs by IP address (only works with auth token).
           schema:
             type: string
         - name: logLevel
           in: query
           required: false
+          description: Filter logs by log level (only works with auth token).
+          schema:
+            type: string
+        - name: messageContains
+          in: query
+          required: false
+          description: Filter logs containing this string in message (only works with auth token).
           schema:
             type: string
         - name: page
@@ -116,11 +136,6 @@ paths:
           schema:
             type: integer
             default: 1
-        - name: messageContains
-          in: query
-          required: false
-          schema:
-            type: string
       responses:
         "200":
           description: Logs fetched successfully
@@ -142,8 +157,12 @@ paths:
                           type: string
                         channel:
                           type: string
+                          description: |
+                            Channel name. Will be "***" for public access.
                         ip:
                           type: string
+                          description: |
+                            IP address. Will be "***" for public access.
                         logLevel:
                           type: string
                         timestamp:
@@ -151,8 +170,19 @@ paths:
                           format: date-time
                         logId:
                           type: string
+                          description: |
+                            Log ID. Will be "***" for public access.
+        "401":
+          description: Invalid or missing auth token when given
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
         "403":
-          description: Unauthorized access
+          description: Invalid public key or invalid credentials
           content:
             application/json:
               schema:
@@ -366,3 +396,105 @@ paths:
                 properties:
                   error:
                     type: string
+  /api/export:
+    get:
+      summary: Export logs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: format
+          in: query
+          required: false
+          description: Format to export logs (default JSON)
+          schema:
+            type: string
+            enum: [json, csv]
+      responses:
+        "200":
+          description: Logs exported successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  example: 
+                    {
+                      "channel": "channel",
+                      "ip": "1.1.1.1",
+                      "logId": "abc",
+                      "logLevel": "info",
+                        "message": "message",
+                        "timestamp": "2025-01-01T00:00:00.000000+00:00"
+                      }
+  /api/log/bulk:
+    post:
+      summary: Bulk log messages
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: Public dev key
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                properties:
+                  channel:
+                    type: string
+                  message:
+                    type: string
+                  logLevel:
+                    type: string
+      responses:
+        "200":
+          description: Logs created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+        "400":
+          description: Bad request, missing fields or invalid data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "403":
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /stats:
+    get:
+      summary: Fetch stats
+      responses:
+        "200":
+          description: Successfully fetched stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalLogs:
+                    type: integer
+                    example: 1000
+                  totalDevKeys:
+                    type: integer
+                    example: 10
+        

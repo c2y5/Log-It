@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import os
@@ -8,6 +8,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from functools import wraps
 import yaml
+import csv
+import io
 
 app = Flask(__name__)
 load_dotenv()
@@ -43,6 +45,13 @@ def authRequire(f):
 
         try:
             decoded = jwt.decode(token, jwtSecret, algorithms=[jwtAlgo])
+            savedHashedPwd = devKeys.find_one({"publicKey": decoded.get("publicKey")}, {"hashedPwd": 1})
+            if not savedHashedPwd:
+                return jsonify({"error": "Invalid public dev key"}), 403
+            
+            if not check_password_hash(savedHashedPwd.get("hashedPwd"), decoded.get("pwd")):
+                return jsonify({"error": "Invalid password"}), 403
+            
             request.publicDevKey = decoded.get("publicKey")
         except jwt.ExpiredSignatureError:
             return jsonify({"error": "Token has expired"}), 401
@@ -71,7 +80,7 @@ def registerAuth():
     
     payload = {
         "publicKey": pubDevKey,
-        "hashedPwd": hashedPwd,
+        "pwd": pwd,
         "exp": datetime.now(timezone.utc) + timedelta(seconds=jwtExp)
     }
 
@@ -99,8 +108,8 @@ def loginAuth():
         return jsonify({"error": "Invalid password"}), 403
 
     payload = {
-        "publicDevKey": pubDevKey,
-        "hashedPwd": generate_password_hash(pwd),
+        "publicKey": pubDevKey,
+        "pwd": pwd,
         "exp": datetime.now(timezone.utc) + timedelta(seconds=jwtExp)
     }
 
@@ -141,58 +150,153 @@ def logMessage():
     else:
         return jsonify({"error": "Failed to log message"}), 500    
 
+@app.route("/api/log/bulk", methods=["POST"])
+def bulkLogMessages():
+    pubDevKey = request.args.get("key")
+    if not pubDevKey:
+        return jsonify({"error": "Missing public dev key"}), 403
+
+    if not devKeys.find_one({"publicKey": pubDevKey}):
+        return jsonify({"error": "Invalid public dev key"}), 403
+
+    data = request.get_json()
+    if not isinstance(data, list) or not data:
+        return jsonify({"error": "Data must be a JSON array and not empty"}), 400
+    
+    logsInsert = []
+
+    for entry in data:
+        message = entry.get("message")
+        channel = entry.get("channel")
+        logLevel = entry.get("logLevel", "info")
+
+        if not message or not channel:
+            return jsonify({"error": "Each entry must have a message and channel"}), 400
+        
+        log_entry = {
+            "message": message,
+            "ip": getIp(request),
+            "logLevel": logLevel,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "channel": channel,
+            "logId": secrets.token_urlsafe(12)[:16],
+            "publicDevKey": pubDevKey
+        }
+
+        logsInsert.append(log_entry)
+
+    result = logDb.insert_many(logsInsert)
+    if result.inserted_ids:
+        return jsonify({"status": "success", "insertedCount": len(result.inserted_ids)}), 200
+    
+    return jsonify({"error": "Failed to log messages"}), 500
+
 # TODO: make endpoint able to be accessed public but with limited info
 # exclude ip, log id, channel
 # remove filter ability for public
 @app.route("/api/pull", methods=["GET"])
-@authRequire
 def pullLogs():
-    if not devKeys.find_one({"publicKey": request.publicDevKey}):
-        return jsonify({"error": "Invalid public dev key"}), 403
+    hasAuth = False
 
-    channel = request.args.get("channel")
-    logId = request.args.get("logId")
-    ip = request.args.get("ip")
-    logLevel = request.args.get("logLevel")
+    authHeader = request.headers.get("Authorization")
+    if authHeader:
+        hasAuth = True
+        if not authHeader.startswith("Bearer "):
+            return jsonify({"error": "Invalid authorization header"}), 401
+        
+        token = authHeader.split(" ")[1]
+        try:
+            decoded = jwt.decode(token, jwtSecret, algorithms=[jwtAlgo])
+            savedHashedPwd = devKeys.find_one({"publicKey": decoded.get("publicKey")}, {"hashedPwd": 1})
+            if not savedHashedPwd:
+                return jsonify({"error": "Invalid public dev key"}), 403
+            if not check_password_hash(savedHashedPwd.get("hashedPwd"), decoded.get("pwd")):
+                return jsonify({"error": "Invalid password"}), 403
+            request.publicDevKey = decoded.get("publicKey")
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "Token has expired"}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"error": "Invalid token"}), 401
+
+    if not hasAuth:
+        pubKey = request.args.get("key")
+        if not pubKey:
+            return jsonify({"error": "Missing public dev key"}), 403
+        
+        if not devKeys.find_one({"publicKey": pubKey}):
+            return jsonify({"error": "Invalid public dev key"}), 403
+        request.publicDevKey = pubKey
+
     page = request.args.get("page", 1, type=int)
-    messageContains = request.args.get("messageContains", "")
 
     query = {"publicDevKey": request.publicDevKey}
-    if channel:
-        query["channel"] = channel
 
-    if logId:
-        query["logId"] = logId
+    if hasAuth:
+        channel = request.args.get("channel")
+        logId = request.args.get("logId")
+        ip = request.args.get("ip")
+        logLevel = request.args.get("logLevel")
+        messageContains = request.args.get("messageContains", "")
 
-    if ip:
-        query["ip"] = ip
+        if channel:
+            query["channel"] = channel
 
-    if logLevel:
-        query["logLevel"] = logLevel
+        if logId:
+            query["logId"] = logId
 
-    if messageContains:
-        query["message"] = {"$regex": messageContains, "$options": "i"}
+        if ip:
+            query["ip"] = ip
 
-    lg = {
-        "_id": 0,
-        "message": 1,
-        "ip": 1,
-        "logLevel": 1,
-        "timestamp": 1,
-        "channel": 1,
-        "logId": 1
-    }
+        if logLevel:
+            query["logLevel"] = logLevel
 
-    result_logs = list(logDb.find(query, lg).sort("timestamp", -1).skip((page - 1) * 100).limit(100))
+        if messageContains:
+            query["message"] = {"$regex": messageContains, "$options": "i"}
 
-    return jsonify({"publicKey": request.publicDevKey, "page": page, "logs": result_logs}), 200
+        projection = {
+            "_id": 0,
+            "message": 1,
+            "ip": 1,
+            "logLevel": 1,
+            "timestamp": 1,
+            "channel": 1,
+            "logId": 1
+        }
+
+        logs = list(logDb.find(query, projection).sort("timestamp", -1).skip((page - 1) * 100).limit(100))
+
+        return jsonify({
+            "publicKey": request.publicDevKey,
+            "page": page,
+            "logs": logs
+        }), 200
+
+    else:
+        projection = {
+            "_id": 0,
+            "message": 1,
+            "ip": 1,
+            "logLevel": 1,
+            "timestamp": 1,
+            "channel": 1,
+            "logId": 1
+        }
+        logs = list(logDb.find(query, projection).sort("timestamp", -1).skip((page - 1) * 100).limit(100))
+
+        for log in logs:
+            log["ip"] = "***"
+            log["logId"] = "***"
+            log["channel"] = "***"
+
+        return jsonify({
+            "publicKey": request.publicDevKey,
+            "page": page,
+            "logs": logs
+        }), 200
 
 @app.route("/api/edit", methods=["PUT"])
 @authRequire
 def editLog():
-    if not devKeys.find_one({"publicKey": request.publicDevKey}):
-        return jsonify({"error": "Invalid public dev key"}), 403
-
     data = request.get_json()
     logId = data.get("logId")
     newMessage = data.get("newMessage")
@@ -212,9 +316,6 @@ def editLog():
 @app.route("/api/delete", methods=["DELETE"])
 @authRequire
 def deleteLog():
-    if not devKeys.find_one({"publicKey": request.publicDevKey}):
-        return jsonify({"error": "Invalid public dev key"}), 403
-    
     data = request.get_json()
     logId = data.get("logId")
     if not logId:
@@ -229,14 +330,41 @@ def deleteLog():
 @app.route("/api/clear", methods=["DELETE"])
 @authRequire
 def clearLogs():
-    if not devKeys.find_one({"publicKey": request.publicDevKey}):
-        return jsonify({"error": "Invalid public dev key"}), 403
-    
     result = logDb.delete_many({"publicDevKey": request.publicDevKey})
     if result.deleted_count > 0:
         return jsonify({"status": "success", "deletedCount": result.deleted_count}), 200
     else:
         return jsonify({"error": "No logs found to delete"}), 404
+
+@app.route("/api/export", methods=["GET"])
+@authRequire
+def exportLogs():
+    format = request.args.get("format", "json").lower()
+    query = {"publicDevKey": request.publicDevKey}
+
+    lg = {
+        "_id": 0,
+        "message": 1,
+        "ip": 1,
+        "logLevel": 1,
+        "timestamp": 1,
+        "channel": 1,
+        "logId": 1
+    }
+
+    _logs = list(logDb.find(query, lg))
+
+    if len(_logs) == 0:
+        return jsonify({"error": "No logs found"}), 404
+
+    if format == "csv":
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=_logs[0].keys())
+        writer.writeheader()
+        writer.writerows(_logs)
+        return Response(output.getvalue(), mimetype="text/csv", headers={"Content-Disposition": f"attachment; filename=logs-{request.publicDevKey}.csv"})
+
+    return jsonify(_logs)
 
 ### SOME OTHER STUFF ###
 
@@ -260,14 +388,8 @@ def stats():
     total_devs = devKeys.count_documents({})
     return jsonify({
         "totalLogs": total_logs,
-        "totalDevs": total_devs
+        "totalDevKeys": total_devs
     }), 200
-
-@app.route("/subscribe", methods=["POST"])
-def subscribeLog():
-    # live update log?
-    data = request.get_json()
-    raise NotImplementedError
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)

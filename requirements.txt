@@ -2,5 +2,4 @@ flask
 pymongo
 pyjwt
 python-dotenv
-flasgger
 pyyaml
