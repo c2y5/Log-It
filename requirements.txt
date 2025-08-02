@@ -4,3 +4,4 @@ pyjwt
 python-dotenv
 pyyaml
 flask-cors
+cryptography

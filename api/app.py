@@ -11,6 +11,10 @@ import yaml
 import csv
 import io
 from flask_cors import CORS
+import os
+import base64
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True, expose_headers=["LogIt-Authorization"], allow_headers=["LogIt-Authorization", "Content-Type"])
@@ -53,8 +57,8 @@ def authRequire(f):
             savedHashedPwd = devKeys.find_one({"publicKey": decoded.get("publicKey")}, {"hashedPwd": 1})
             if not savedHashedPwd:
                 return jsonify({"error": "Invalid public dev key"}), 403
-            
-            if not check_password_hash(savedHashedPwd.get("hashedPwd"), decoded.get("pwd")):
+
+            if not check_password_hash(savedHashedPwd.get("hashedPwd"), decrypt(base64.b64decode(decoded.get("pwd")), jwtSecret).decode()):
                 return jsonify({"error": "Invalid password"}), 403
             
             request.publicDevKey = decoded.get("publicKey")
@@ -65,6 +69,30 @@ def authRequire(f):
         
         return f(*args, **kwargs)
     return decorated
+
+def encrypt(input_bytes, key):
+    if isinstance(key, str):
+        key = key.encode()
+    key = key.ljust(32, b'\0')[:32]
+    iv = os.urandom(16)
+    cipher = Cipher(algorithms.AES(key), modes.CFB(iv), backend=default_backend())
+    encryptor = cipher.encryptor()
+
+    encrypted = encryptor.update(input_bytes) + encryptor.finalize()
+    return iv + encrypted
+
+def decrypt(encrypted_bytes, key):
+    if isinstance(key, str):
+        key = key.encode()
+    key = key.ljust(32, b'\0')[:32]
+
+    iv = encrypted_bytes[:16]
+    actual_encrypted = encrypted_bytes[16:]
+
+    cipher = Cipher(algorithms.AES(key), modes.CFB(iv), backend=default_backend())
+    decryptor = cipher.decryptor()
+
+    return decryptor.update(actual_encrypted) + decryptor.finalize()
 
 ### AUTH ENDPOINTS ###
 
@@ -85,7 +113,7 @@ def registerAuth():
     
     payload = {
         "publicKey": pubDevKey,
-        "pwd": pwd,
+        "pwd": base64.b64encode(encrypt(pwd.encode(), jwtSecret)).decode(),
         "exp": datetime.now(timezone.utc) + timedelta(seconds=jwtExp)
     }
 
@@ -114,7 +142,7 @@ def loginAuth():
 
     payload = {
         "publicKey": pubDevKey,
-        "pwd": pwd,
+        "pwd": base64.b64encode(encrypt(pwd.encode(), jwtSecret)).decode(),
         "exp": datetime.now(timezone.utc) + timedelta(seconds=jwtExp)
     }
 
@@ -196,9 +224,6 @@ def bulkLogMessages():
     
     return jsonify({"error": "Failed to log messages"}), 500
 
-# TODO: make endpoint able to be accessed public but with limited info
-# exclude ip, log id, channel
-# remove filter ability for public
 @app.route("/api/pull", methods=["GET"])
 def pullLogs():
     hasAuth = False
@@ -215,7 +240,7 @@ def pullLogs():
             savedHashedPwd = devKeys.find_one({"publicKey": decoded.get("publicKey")}, {"hashedPwd": 1})
             if not savedHashedPwd:
                 return jsonify({"error": "Invalid public dev key"}), 403
-            if not check_password_hash(savedHashedPwd.get("hashedPwd"), decoded.get("pwd")):
+            if not check_password_hash(savedHashedPwd.get("hashedPwd"), decrypt(base64.b64decode(decoded.get("pwd")), jwtSecret).decode()):
                 return jsonify({"error": "Invalid password"}), 403
             request.publicDevKey = decoded.get("publicKey")
         except jwt.ExpiredSignatureError:
@@ -395,6 +420,26 @@ def stats():
         "totalLogs": total_logs,
         "totalDevKeys": total_devs
     }), 200
+
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({"error": "Not found"}), 404
+
+@app.errorhandler(500)
+def internal_error(e):
+    return jsonify({"error": "Internal server error"}), 500
+
+@app.errorhandler(403)
+def forbidden(e):
+    return jsonify({"error": "Forbidden"}), 403
+
+@app.errorhandler(400)
+def bad_request(e):
+    return jsonify({"error": "Bad request"}), 400
+
+@app.errorhandler(401)
+def unauthorized(e):
+    return jsonify({"error": "Unauthorized"}), 401
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
