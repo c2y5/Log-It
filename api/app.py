@@ -40,10 +40,13 @@ def authRequire(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         authHeader = request.headers.get("LogIt-Authorization")
-        if not authHeader or not authHeader.startswith("Bearer "):
+        if not authHeader:
             return jsonify({"error": "Authorization header is required"}), 401
         
-        token = authHeader.split(" ")[1]
+        if authHeader.startswith("Bearer "):
+            token = authHeader.split(" ")[1]
+        else:
+            token = authHeader
 
         try:
             decoded = jwt.decode(token, jwtSecret, algorithms=[jwtAlgo])
