@@ -4,6 +4,8 @@ An API for developers to log and manage their application logs.
 
 \* The authorization header is called ``LogIt-Authorization`` and it uses JWT tokens
 
+![LogItBanner](./static/LogItBanner.png)
+
 ---
 
 ## Features
