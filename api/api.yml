@@ -48,7 +48,6 @@ paths:
                 properties:
                   error:
                     type: string
-  
   /auth/login:
     post:
       summary: Fetch a JWT token for auth
@@ -218,6 +217,11 @@ paths:
           required: false
           schema:
             type: string
+        - name: tags
+          in: query
+          required: false
+          schema:
+            type: array
       responses:
         "200":
           description: Log created successfully
@@ -454,6 +458,10 @@ paths:
                     type: string
                   logLevel:
                     type: string
+                  tags:
+                    type: array
+                    items:
+                      type: string
       responses:
         "200":
           description: Logs created successfully
@@ -500,4 +508,391 @@ paths:
                   totalDevKeys:
                     type: integer
                     example: 10
-        
+  /api/logs/search:
+    get:
+      summary: Advanced log search
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: channel
+          in: query
+          required: false
+          description: Filter by channel (comma separated)
+          schema:
+            type: string
+        - name: tags
+          in: query
+          required: false
+          description: Filter by tags (comma separated)
+          schema:
+            type: array
+            items:
+              type: string
+        - name: logLevel
+          in: query
+          required: false
+          description: Filter by log level (comma separated)
+          schema:
+            type: string
+        - name: ip
+          in: query
+          required: false
+          description: Filter by IP address (comma separated)
+          schema:
+            type: string
+        - name: messageContains
+          in: query
+          required: false
+          description: Search logs containing this string in message
+          schema:
+            type: string
+        - name: messageRegex
+          in: query
+          required: false
+          description: Regex search on message
+          schema:
+            type: string
+        - name: caseSensitive
+          in: query
+          required: false
+          description: Regex search case sensitive (default false)
+          schema:
+            type: boolean
+            default: false
+        - name: startDate
+          in: query
+          required: false
+          description: ISO 8601 start date
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          required: false
+          description: ISO 8601 end date
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          required: false
+          description: Page number (default 1)
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          description: Number of logs per page (default 100, max 500)
+          schema:
+            type: integer
+            default: 100
+        - name: sortField
+          in: query
+          required: false
+          description: Field to sort results by (default by time)
+          schema:
+            type: string
+            default: timestamp
+            enum: [timestamp, channel, logLevel, ip]
+        - name: sortOrder
+          in: query
+          required: false
+          description: Sort order, `asc` or `desc` (default desc)
+          schema:
+            type: string
+            enum: [asc, desc]
+        - name: fields
+          in: query
+          required: false
+          description: List of fields to return (comma separated, default all)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Logs fetched successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  publicKey:
+                    type: string
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+                  sortField:
+                    type: string
+                  sortOrder:
+                    type: string
+                    enum: [asc, desc]
+                  filtersApplied:
+                    type: object
+                    additionalProperties: true
+                  returnedFields:
+                    type: array
+                    items:
+                      type: string
+                  logs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        message:
+                          type: string
+                        channel:
+                          type: string
+                        ip:
+                          type: string
+                        logLevel:
+                          type: string
+                        timestamp:
+                          type: string
+                          format: date-time
+                        logId:
+                          type: string
+        "400":
+          description: Invalid request (e.g., bad date format)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "403":
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /api/blacklist/add:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Add an IP to blacklist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ip:
+                  type: string
+                  format: ipv4
+      responses:
+        "200":
+          description: IP added to blacklist
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "403":
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /api/blacklist/remove:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Remove an IP from the blacklist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ip:
+                  type: string
+                  format: ipv4
+      responses:
+        "200":
+          description: IP removed from blacklist
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "403":
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /api/blacklist/list:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List all blacklisted IPs
+      responses:
+        "200":
+          description: Successfully fetch blacklisted IPs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blacklist:
+                    type: array
+                    items:
+                      type: string
+                      format: ipv4
+        "403":
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /api/origin/add:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Add an allowed origin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                origin:
+                  type: string
+                  format: uri
+      responses:
+        "200":
+          description: Origin added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "403":
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /api/origin/remove:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Remove an allowed origin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                origin:
+                  type: string
+                  format: uri
+      responses:
+        "200":
+          description: Origin removed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "403":
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /api/origin/list:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List all allowed origins
+      responses:
+        "200":
+          description: Successfully fetched origins list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  allowedOrigins:
+                    type: array
+                    items:
+                      type: string
+                      format: uri
+        "403":
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string

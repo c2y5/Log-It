@@ -15,6 +15,8 @@ import os
 import base64
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
+import requests
+from dateutil import parser as date_parser
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True, expose_headers=["LogIt-Authorization"], allow_headers=["LogIt-Authorization", "Content-Type"])
@@ -24,9 +26,9 @@ with open(os.path.join(os.path.dirname(__file__), "api.yml"), "r") as f:
     swaggerTemplate = yaml.safe_load(f)
 
 mongoClient = MongoClient(os.getenv("MONGO_URI"))
-db = mongoClient["logit-dev-19382"]
-devKeys = db["devKeys"]
-logDb = db["logs"]
+mongodb = mongoClient["logit-dev-19382"]
+devKeys = mongodb["devKeys"]
+logDb = mongodb["logs"]
 
 jwtSecret = os.getenv("JWT_SECRET")
 jwtAlgo = "HS256"
@@ -58,7 +60,12 @@ def authRequire(f):
             if not savedHashedPwd:
                 return jsonify({"error": "Invalid public dev key"}), 403
 
-            if not check_password_hash(savedHashedPwd.get("hashedPwd"), decrypt(base64.b64decode(decoded.get("pwd")), jwtSecret).decode()):
+            try:
+                decodedPwd = decrypt(base64.b64decode(decoded.get("pwd")), jwtSecret).decode()
+            except Exception as e:
+                return jsonify({"error": "Failed to decrypt password"}), 403
+
+            if not check_password_hash(savedHashedPwd.get("hashedPwd"), decodedPwd):
                 return jsonify({"error": "Invalid password"}), 403
             
             request.publicDevKey = decoded.get("publicKey")
@@ -69,6 +76,25 @@ def authRequire(f):
         
         return f(*args, **kwargs)
     return decorated
+
+def isIpBlacklisted(ip, publicDevKey):
+    dev = devKeys.find_one({"publicKey": publicDevKey}, {"blacklistedIps": 1})
+    if dev and "blacklistedIps" in dev:
+        return ip in dev["blacklistedIps"]
+
+    return False
+
+def isOriginAllowed(publicDevKey, request):
+    origin = request.headers.get("Origin")
+    if not origin:
+        return True
+    
+    dev = devKeys.find_one({"publicKey": publicDevKey}, {"allowedOrigins": 1})
+    if not dev:
+        return False
+    
+    allowed = dev.get("allowedOrigins", [])
+    return "*" in allowed or origin in allowed
 
 def encrypt(input_bytes, key):
     if isinstance(key, str):
@@ -107,7 +133,7 @@ def registerAuth():
     pubDevKey = secrets.token_urlsafe(16)
     hashedPwd = generate_password_hash(pwd)
 
-    result = devKeys.insert_one({"publicKey": pubDevKey, "hashedPwd": hashedPwd, "publicView": pubView})
+    result = devKeys.insert_one({"publicKey": pubDevKey, "hashedPwd": hashedPwd, "publicView": pubView, "allowedOrigins": [], "blacklistedIps": [], "webhookUrl": None})
 
     if not result.inserted_id:
         return jsonify({"error": "Failed to register for a dev key"}), 500
@@ -161,10 +187,18 @@ def logMessage():
 
     if not devKeys.find_one({"publicKey": pubDevKey}):
         return jsonify({"error": "Invalid public dev key"}), 403
+    
+    if isIpBlacklisted(getIp(request), pubDevKey):
+        return jsonify({"error": "Your IP is blacklisted"}), 403
+    
+    if not isOriginAllowed(pubDevKey, request):
+        return jsonify({"error": "Origin not allowed"}), 403
 
     message = request.args.get("message")
     channel = request.args.get("channel")
     logLevel = request.args.get("logLevel", "info")
+    tags = request.args.getlist("tags")
+
     if not message or not channel:
         return jsonify({"error": "Message and channel are required"}), 400
 
@@ -175,8 +209,33 @@ def logMessage():
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "channel": channel,
         "logId": secrets.token_urlsafe(12)[:16],
-        "publicDevKey": pubDevKey
+        "publicDevKey": pubDevKey,
+        "tags": tags if tags else []
     }
+
+    webhookUrl = devKeys.find_one({"publicKey": pubDevKey}, {"webhookUrl": 1}).get("webhookUrl")
+    if webhookUrl:
+        try:
+            discord_payload = {
+                "embeds": [
+                    {
+                        "title": f"📜 Log from {channel}",
+                        "color": 0x3498db,
+                        "fields": [
+                            {"name": "Message", "value": message, "inline": False},
+                            {"name": "Log Level", "value": logLevel, "inline": True},
+                            {"name": "IP", "value": log_entry["ip"], "inline": True},
+                            {"name": "Log ID", "value": log_entry["logId"], "inline": False}
+                        ],
+                        "footer": {"text": f"Public Key: {pubDevKey}"},
+                        "timestamp": log_entry["timestamp"]
+                    }
+                ]
+            }
+
+            requests.post(webhookUrl, json=discord_payload)
+        except requests.RequestException as e:
+            print(f"Failed to send webhook: {e}")
 
     result = logDb.insert_one(log_entry)
     if result.inserted_id:
@@ -192,6 +251,12 @@ def bulkLogMessages():
 
     if not devKeys.find_one({"publicKey": pubDevKey}):
         return jsonify({"error": "Invalid public dev key"}), 403
+    
+    if isIpBlacklisted(getIp(request), pubDevKey):
+        return jsonify({"error": "Your IP is blacklisted"}), 403
+    
+    if not isOriginAllowed(pubDevKey, request):
+        return jsonify({"error": "Origin not allowed"}), 403
 
     data = request.get_json()
     if not isinstance(data, list) or not data:
@@ -203,6 +268,7 @@ def bulkLogMessages():
         message = entry.get("message")
         channel = entry.get("channel")
         logLevel = entry.get("logLevel", "info")
+        tags = entry.get("tags", [])
 
         if not message or not channel:
             return jsonify({"error": "Each entry must have a message and channel"}), 400
@@ -214,7 +280,8 @@ def bulkLogMessages():
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "channel": channel,
             "logId": secrets.token_urlsafe(12)[:16],
-            "publicDevKey": pubDevKey
+            "publicDevKey": pubDevKey,
+            "tags": tags if tags else []
         }
 
         logsInsert.append(log_entry)
@@ -241,7 +308,11 @@ def pullLogs():
             savedHashedPwd = devKeys.find_one({"publicKey": decoded.get("publicKey")}, {"hashedPwd": 1})
             if not savedHashedPwd:
                 return jsonify({"error": "Invalid public dev key"}), 403
-            if not check_password_hash(savedHashedPwd.get("hashedPwd"), decrypt(base64.b64decode(decoded.get("pwd")), jwtSecret).decode()):
+            try:
+                decodedPwd = decrypt(base64.b64decode(decoded.get("pwd")), jwtSecret).decode()
+            except Exception as e:
+                return jsonify({"error": "Failed to decrypt password"}), 403
+            if not check_password_hash(savedHashedPwd.get("hashedPwd"), decodedPwd):
                 return jsonify({"error": "Invalid password"}), 403
             request.publicDevKey = decoded.get("publicKey")
         except jwt.ExpiredSignatureError:
@@ -257,6 +328,9 @@ def pullLogs():
         if not devKeys.find_one({"publicKey": pubKey}):
             return jsonify({"error": "Invalid public dev key"}), 403
         request.publicDevKey = pubKey
+
+    if isIpBlacklisted(getIp(request), request.publicDevKey) and not hasAuth:
+        return jsonify({"error": "Your IP is blacklisted"}), 403
 
     result = devKeys.find_one({"publicKey": request.publicDevKey}, {"publicView": 1})
     publicView = result.get("publicView", False)
@@ -330,6 +404,88 @@ def pullLogs():
             "page": page,
             "logs": logs
         }), 200
+    
+@app.route("/api/logs/search", methods=["GET"])
+@authRequire
+def searchLogs():
+    query = {"publicDevKey": request.publicDevKey}
+
+    def multValueFilter(param_name):
+        values = request.args.get(param_name)
+        if values:
+            values_list = [v.strip() for v in values.split(",") if v.strip()]
+            if len(values_list) == 1:
+                query[param_name] = values_list[0]
+            else:
+                query[param_name] = {"$in": values_list}
+
+    multValueFilter("channel")
+    multValueFilter("logLevel")
+    multValueFilter("ip")
+
+    tags = request.args.get("tags")
+    if tags:
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        query["tags"] = {"$all": tag_list}
+
+    messageContains = request.args.get("messageContains")
+    if messageContains:
+        query["message"] = {"$regex": messageContains, "$options": "i"}
+
+    messageRegex = request.args.get("messageRegex")
+    caseSensitive = request.args.get("caseSensitive", "false").lower() == "true"
+    if messageRegex:
+        query["message"] = {"$regex": messageRegex, "$options": "" if caseSensitive else "i"}
+
+    startDate = request.args.get("startDate")
+    endDate = request.args.get("endDate")
+    if startDate or endDate:
+        time_filter = {}
+        try:
+            if startDate:
+                time_filter["$gte"] = date_parser.parse(startDate).isoformat()
+            if endDate:
+                time_filter["$lte"] = date_parser.parse(endDate).isoformat()
+            query["timestamp"] = time_filter
+        except Exception:
+            return jsonify({"error": "Invalid date format"}), 400
+
+    page = max(1, request.args.get("page", 1, type=int))
+    limit = min(500, request.args.get("limit", 100, type=int))
+
+    sortField = request.args.get("sortField", "timestamp")
+    sortOrder = request.args.get("sortOrder", "desc").lower()
+    sortDir = -1 if sortOrder == "desc" else 1
+
+    fields = request.args.get("fields")
+    if fields:
+        projection = {f.strip(): 1 for f in fields.split(",") if f.strip()}
+        projection["_id"] = 0
+    else:
+        projection = {
+            "_id": 0,
+            "message": 1,
+            "ip": 1,
+            "logLevel": 1,
+            "timestamp": 1,
+            "channel": 1,
+            "logId": 1
+        }
+
+    logs = list(
+        logDb.find(query, projection).sort(sortField, sortDir).skip((page - 1) * limit).limit(limit)
+    )
+
+    return jsonify({
+        "publicKey": request.publicDevKey,
+        "page": page,
+        "limit": limit,
+        "sortField": sortField,
+        "sortOrder": sortOrder,
+        "filtersApplied": query,
+        "returnedFields": list(projection.keys()),
+        "logs": logs
+    }), 200
 
 @app.route("/api/edit", methods=["PUT"])
 @authRequire
@@ -403,6 +559,94 @@ def exportLogs():
 
     return jsonify(_logs)
 
+### IP STUFF ###
+@app.route("/api/blacklist/add", methods=["POST"])
+@authRequire
+def addIpBlacklist():
+    data = request.get_json()
+    ip = data.get("ip")
+    if not ip:
+        return jsonify({"error": "IP address is required"}), 400
+    
+    result = devKeys.update_one({"publicKey": request.publicDevKey}, {"$addToSet": {"blacklist": ip}})
+
+    if result.modified_count > 0:
+        return jsonify({"status": "success"}), 200
+    else:
+        return jsonify({"error": "Failed to add IP to blacklist or IP already exists"}), 400
+
+@app.route("/api/blacklist/remove", methods=["POST"])
+@authRequire
+def removeIpBlacklist():
+    data = request.get_json()
+    ip = data.get("ip")
+    if not ip:
+        return jsonify({"error": "IP address is required"}), 400
+    
+    result = devKeys.update_one({"publicKey": request.publicDevKey}, {"$pull": {"blacklist": ip}})
+    if result.modified_count > 0:
+        return jsonify({"status": "IP removed from blacklist"}), 200
+    else:
+        return jsonify({"error": "Failed to remove IP from blacklist or IP not found"}), 400
+    
+@app.route("/api/blacklist/list", methods=["GET"])
+@authRequire
+def listIpBlacklist():
+    result = devKeys.find_one({"publicKey": request.publicDevKey}, {"blacklist": 1})
+    if result and "blacklist" in result:
+        return jsonify({"blacklist": result["blacklist"]}), 200
+    else:
+        return jsonify({"blacklist": []}), 200
+
+### ORIGIN ALLOW LIST ###
+
+@app.route("/api/origin/add", methods=["POST"])
+@authRequire
+def addOriginAllowList():
+    data = request.get_json()
+    origin = data.get("origin")
+
+    if not origin:
+        return jsonify({"error": "Origin is required"}), 400
+    
+    if not origin.startswith("http://") and not origin.startswith("https://"):
+        return jsonify({"error": "Origin must start with http:// or https://"}), 400
+    
+    result = devKeys.update_one({"publicKey": request.publicDevKey}, {"$addToSet": {"allowedOrigins": origin}})
+
+    if result.modified_count > 0:
+        return jsonify({"status": "success"}), 200
+    else:
+        return jsonify({"error": "Failed to add origin or origin already exists"}), 400
+    
+@app.route("/api/origin/remove", methods=["POST"])
+@authRequire
+def removeOriginAllowList():
+    data = request.get_json()
+    origin = data.get("origin")
+
+    if not origin:
+        return jsonify({"error": "Origin is required"}), 400
+    
+    if not origin.startswith("http://") and not origin.startswith("https://"):
+        return jsonify({"error": "Origin must start with http:// or https://"}), 400
+    
+    result = devKeys.update_one({"publicKey": request.publicDevKey}, {"$pull": {"allowedOrigins": origin}})
+    
+    if result.modified_count > 0:
+        return jsonify({"status": "success"}), 200
+    else:
+        return jsonify({"error": "Failed to remove origin or origin not found"}), 400
+    
+@app.route("/api/origin/list", methods=["GET"])
+@authRequire
+def listOriginAllowList():
+    result = devKeys.find_one({"publicKey": request.publicDevKey}, {"allowedOrigins": 1})
+    if result and "allowedOrigins" in result:
+        return jsonify({"allowedOrigins": result["allowedOrigins"]}), 200
+    else:
+        return jsonify({"allowedOrigins": []}), 200
+
 ### SOME OTHER STUFF ###
 
 @app.route("/openapi.json")
@@ -427,6 +671,24 @@ def stats():
         "totalLogs": total_logs,
         "totalDevKeys": total_devs
     }), 200
+
+@app.route("/webhook_setup", methods=["POST"])
+@authRequire
+def webhookSetup():
+    data = request.get_json()
+    if "webhookUrl" not in data:
+        return jsonify({"error": "Webhook URL is required"}), 400
+    
+    webhookUrl = data["webhookUrl"]
+    if not webhookUrl.startswith("http://") and not webhookUrl.startswith("https://"):
+        return jsonify({"error": "URL must start with http:// or https://"}), 400
+    
+    if not webhookUrl.startswith("https://discord.com/api/webhooks/"):
+        return jsonify({"error": "Only discord webhook is currently supported"}), 400
+    
+    devKeys.update_one({"publicKey": request.publicDevKey}, {"$set": {"webhookUrl": webhookUrl}})
+
+    return jsonify({"status": "Webhook URL set successfully"}), 200
 
 @app.errorhandler(404)
 def not_found(e):

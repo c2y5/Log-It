@@ -5,3 +5,5 @@ python-dotenv
 pyyaml
 flask-cors
 cryptography
+requests
+python-dateutil
