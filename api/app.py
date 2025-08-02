@@ -20,7 +20,7 @@ from dateutil import parser as date_parser
 import re
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True, expose_headers=["LogIt-Authorization"], allow_headers=["LogIt-Authorization", "Content-Type"], origins="*")
+CORS(app, supports_credentials=False, expose_headers=["LogIt-Authorization"], allow_headers=["LogIt-Authorization", "Content-Type"], origins="*")
 load_dotenv()
 
 with open(os.path.join(os.path.dirname(__file__), "api.yml"), "r") as f:
