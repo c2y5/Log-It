@@ -2,15 +2,16 @@ openapi: "3.1.1"
 info:
   title: Log-It API
   version: "1.0"
-  description: API for developers to log and manage their application logs.
+  description: API for developers to log and manage their application logs. Authorization header is called `LogIt-Authorization` and uses JWT tokens.
 servers:
   - url: https://logit.amsky.xyz
 components:
   securitySchemes:
     bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
+      type: apiKey
+      in: header
+      name: LogIt-Authorization
+      description: JWT token sent in LogIt-Authorization header
 paths:
   /auth/register:
     post:

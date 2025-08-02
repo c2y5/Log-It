@@ -13,7 +13,7 @@ import io
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True, expose_headers=["Authorization"], allow_headers=["Authorization", "Content-Type"])
+CORS(app, supports_credentials=True, expose_headers=["LogIt-Authorization"], allow_headers=["LogIt-Authorization", "Content-Type"])
 load_dotenv()
 
 with open(os.path.join(os.path.dirname(__file__), "api.yml"), "r") as f:
@@ -39,7 +39,7 @@ def getIp(r):
 def authRequire(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        authHeader = request.headers.get("Authorization")
+        authHeader = request.headers.get("LogIt-Authorization")
         if not authHeader or not authHeader.startswith("Bearer "):
             return jsonify({"error": "Authorization header is required"}), 401
         
@@ -200,7 +200,7 @@ def bulkLogMessages():
 def pullLogs():
     hasAuth = False
 
-    authHeader = request.headers.get("Authorization")
+    authHeader = request.headers.get("LogIt-Authorization")
     if authHeader:
         hasAuth = True
         if not authHeader.startswith("Bearer "):
