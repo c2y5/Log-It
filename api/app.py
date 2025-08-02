@@ -85,18 +85,6 @@ def isIpBlacklisted(ip, publicDevKey):
 
     return False
 
-def isOriginAllowed(publicDevKey, request):
-    origin = request.headers.get("Origin")
-    if not origin:
-        return True
-    
-    dev = devKeys.find_one({"publicKey": publicDevKey}, {"allowedOrigins": 1})
-    if not dev:
-        return False
-    
-    allowed = dev.get("allowedOrigins", [])
-    return "*" in allowed or origin in allowed
-
 def encrypt(input_bytes, key):
     if isinstance(key, str):
         key = key.encode()
@@ -134,7 +122,7 @@ def registerAuth():
     pubDevKey = secrets.token_urlsafe(16)
     hashedPwd = generate_password_hash(pwd)
 
-    result = devKeys.insert_one({"publicKey": pubDevKey, "hashedPwd": hashedPwd, "publicView": pubView, "allowedOrigins": [], "blacklistedIps": [], "webhookUrl": None})
+    result = devKeys.insert_one({"publicKey": pubDevKey, "hashedPwd": hashedPwd, "publicView": pubView, "blacklistedIps": [], "webhookUrl": None})
 
     if not result.inserted_id:
         return jsonify({"error": "Failed to register for a dev key"}), 500
@@ -192,9 +180,6 @@ def logMessage():
     if isIpBlacklisted(getIp(request), pubDevKey):
         return jsonify({"error": "Your IP is blacklisted"}), 403
     
-    if not isOriginAllowed(pubDevKey, request):
-        return jsonify({"error": "Origin not allowed"}), 403
-
     message = request.args.get("message")
     channel = request.args.get("channel")
     logLevel = request.args.get("logLevel", "info")
@@ -257,9 +242,6 @@ def bulkLogMessages():
     
     if isIpBlacklisted(getIp(request), pubDevKey):
         return jsonify({"error": "Your IP is blacklisted"}), 403
-    
-    if not isOriginAllowed(pubDevKey, request):
-        return jsonify({"error": "Origin not allowed"}), 403
 
     data = request.get_json()
     if not isinstance(data, list) or not data:
@@ -649,55 +631,6 @@ def listIpBlacklist():
         return jsonify({"blacklist": result["blacklist"]}), 200
     else:
         return jsonify({"blacklist": []}), 200
-
-### ORIGIN ALLOW LIST ###
-
-@app.route("/api/origin/add", methods=["POST"])
-@authRequire
-def addOriginAllowList():
-    data = request.get_json()
-    origin = data.get("origin")
-
-    if not origin:
-        return jsonify({"error": "Origin is required"}), 400
-    
-    if not origin.startswith("http://") and not origin.startswith("https://"):
-        return jsonify({"error": "Origin must start with http:// or https://"}), 400
-    
-    result = devKeys.update_one({"publicKey": request.publicDevKey}, {"$addToSet": {"allowedOrigins": origin}})
-
-    if result.modified_count > 0:
-        return jsonify({"status": "success"}), 200
-    else:
-        return jsonify({"error": "Failed to add origin or origin already exists"}), 400
-    
-@app.route("/api/origin/remove", methods=["POST"])
-@authRequire
-def removeOriginAllowList():
-    data = request.get_json()
-    origin = data.get("origin")
-
-    if not origin:
-        return jsonify({"error": "Origin is required"}), 400
-    
-    if not origin.startswith("http://") and not origin.startswith("https://"):
-        return jsonify({"error": "Origin must start with http:// or https://"}), 400
-    
-    result = devKeys.update_one({"publicKey": request.publicDevKey}, {"$pull": {"allowedOrigins": origin}})
-    
-    if result.modified_count > 0:
-        return jsonify({"status": "success"}), 200
-    else:
-        return jsonify({"error": "Failed to remove origin or origin not found"}), 400
-    
-@app.route("/api/origin/list", methods=["GET"])
-@authRequire
-def listOriginAllowList():
-    result = devKeys.find_one({"publicKey": request.publicDevKey}, {"allowedOrigins": 1})
-    if result and "allowedOrigins" in result:
-        return jsonify({"allowedOrigins": result["allowedOrigins"]}), 200
-    else:
-        return jsonify({"allowedOrigins": []}), 200
 
 ### SOME OTHER STUFF ###
 
