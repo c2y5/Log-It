@@ -896,3 +896,47 @@ paths:
                 properties:
                   error:
                     type: string
+  /webhook_setup:
+    post:
+      summary: Setup webhook for log notifications
+      security:
+        - bearerAuth: []
+      requestBody:
+        description: Only discord webhook url is currently supported
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                webhookUrl:
+                  type: string
+                  format: uri
+      responses:
+        "200":
+          description: Webhook setup successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+        "400":
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "403":
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
