@@ -2,9 +2,8 @@ openapi: "3.1.1"
 info:
   title: Log-It API
   version: "1.0"
-  description: API for developers to log and manage their application logs. Authorization header is called `LogIt-Authorization` and uses JWT tokens. There are two servers avilable, one hosted on Nest and one on vercel. The vercel server is `https://logit.amsky.xyz` and the Nest server is `https://logit-api.amsky.xyz`. Both servers are identical and you can use either one.
+  description: API for developers to log and manage their application logs. Authorization header is called `LogIt-Authorization` and uses JWT tokens.
 servers:
-  - url: https://logit-api.amsky.xyz
   - url: https://logit.amsky.xyz
 components:
   securitySchemes:
